@@ -187,6 +187,7 @@ const Command = React.forwardRef<HTMLDivElement, CommandProps>((props, forwarded
   const allGroups = useLazyRef<Map<string, Set<string>>>(() => new Map()) // groupId → [...itemIds]
   const ids = useLazyRef<Map<string, { value: string; keywords?: string[] }>>(() => new Map()) // id → { value, keywords }
   const listeners = useLazyRef<Set<() => void>>(() => new Set()) // [...rerenders]
+  const originalGroupOrder = useLazyRef<string[]>(() => []) // Track original group order
   const propsRef = useAsRef(props)
   const {
     label,
@@ -339,9 +340,17 @@ const Command = React.forwardRef<HTMLDivElement, CommandProps>((props, forwarded
           allGroups.current.set(id, new Set())
         }
 
+        if (!originalGroupOrder.current.includes(id)) {
+          originalGroupOrder.current.push(id)
+        }
+
         return () => {
           ids.current.delete(id)
           allGroups.current.delete(id)
+          const index = originalGroupOrder.current.indexOf(id)
+          if (index > -1) {
+            originalGroupOrder.current.splice(index, 1)
+          }
         }
       },
       filter: () => {
@@ -371,6 +380,18 @@ const Command = React.forwardRef<HTMLDivElement, CommandProps>((props, forwarded
       // Explicitly false, because true | undefined is the default
       propsRef.current.shouldFilter === false
     ) {
+      // If there's no search, restore original group order
+      if (!state.current.search && listInnerRef.current) {
+        const listElement = listInnerRef.current
+
+        // Restore original group order
+        originalGroupOrder.current.forEach((groupId) => {
+          const groupElement = listElement.querySelector(`${GROUP_SELECTOR}[data-group-id="${groupId}"]`)
+          if (groupElement && groupElement.parentElement === listElement) {
+            listElement.appendChild(groupElement)
+          }
+        })
+      }
       return
     }
 
@@ -418,10 +439,10 @@ const Command = React.forwardRef<HTMLDivElement, CommandProps>((props, forwarded
     groups
       .sort((a, b) => b[1] - a[1])
       .forEach((group) => {
-        const element = listInnerRef.current?.querySelector(
-          `${GROUP_SELECTOR}[${VALUE_ATTR}="${encodeURIComponent(group[0])}"]`,
-        )
-        element?.parentElement.appendChild(element)
+        const element = listInnerRef.current?.querySelector(`${GROUP_SELECTOR}[data-group-id="${group[0]}"]`)
+        if (element?.parentElement) {
+          element.parentElement.appendChild(element)
+        }
       })
   }
 
@@ -752,6 +773,7 @@ const Group = React.forwardRef<HTMLDivElement, GroupProps>((props, forwardedRef)
       cmdk-group=""
       role="presentation"
       hidden={render ? undefined : true}
+      data-group-id={id}
     >
       {heading && (
         <div ref={headingRef} cmdk-group-heading="" aria-hidden id={headingId}>
